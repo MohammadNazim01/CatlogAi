@@ -103,7 +103,7 @@ def error_response(
     return JSONResponse({"error": error}, status_code=status_code, headers=headers)
 
 
-def _constraint_name(exc: IntegrityError) -> str | None:
+def violated_constraint(exc: IntegrityError) -> str | None:
     """Find the violated constraint's name. SQLAlchemy wraps the driver error, which for asyncpg
     is chained via __cause__; the name is not otherwise exposed."""
     orig: BaseException | None = exc.orig
@@ -152,7 +152,7 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
 async def _integrity_error(request: Request, exc: Exception) -> JSONResponse:
     exc = cast(IntegrityError, exc)
     request_id = get_request_id(request.scope)
-    mapped = CONSTRAINT_ERRORS.get(_constraint_name(exc) or "")
+    mapped = CONSTRAINT_ERRORS.get(violated_constraint(exc) or "")
     if mapped is None:
         # An unmapped violation is a bug (missing pre-check or mapping), not a client error.
         logger.error("unmapped integrity error", exc_info=exc)

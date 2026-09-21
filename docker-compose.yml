@@ -57,10 +57,21 @@ services:
     entrypoint: ["/bin/sh", "/minio-init.sh"]
     restart: "no"
 
+  # One-shot: applies migrations, then exits. The backend only starts after it succeeded.
+  migrate:
+    build: ./backend
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
   backend:
     build: ./backend
     restart: unless-stopped
     depends_on:
+      migrate: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
     environment:
