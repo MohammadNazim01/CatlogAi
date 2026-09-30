@@ -35,8 +35,13 @@ services:
       timeout: 3s
       retries: 10
 
+  # MinIO's own images (Docker Hub, then quay.io) both stopped allowing anonymous pulls in
+  # September 2026 — a vendor-side policy change, not specific to this project. Chainguard
+  # builds MinIO from source and publishes it on cgr.dev, still anonymously pullable; pinned by
+  # digest since that registry only keeps a rolling `latest` tag, not versioned releases. The
+  # same image bundles `mc`, so minio-init below reuses it instead of a separate image.
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z  # Docker Hub no longer hosts this image
+    image: cgr.dev/chainguard/minio@sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -46,7 +51,7 @@ services:
       - miniodata:/data
 
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: cgr.dev/chainguard/minio@sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285
     depends_on: [minio]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
