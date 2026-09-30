@@ -40,12 +40,20 @@ class Settings(BaseSettings):
     # Comma-separated in the environment. Empty in same-origin production deployments.
     cors_origins: Annotated[list[str], NoDecode] = []
 
-    # --- Object storage (used from Phase 3). Blank keys => default AWS credential chain. ---
+    # --- Object storage. Blank keys => default AWS credential chain. ---
     s3_endpoint_url: str | None = None
     s3_region: str = "ap-south-1"
     s3_bucket: str = "catalogai-dev"
     s3_access_key_id: str | None = None
     s3_secret_access_key: SecretStr | None = None
+    s3_presign_ttl_image_sec: int = Field(default=600, ge=1)
+
+    # --- Image upload limits (docs/03 §14). max_image_bytes matches the DB CHECK constraint
+    # on product_images.file_size; raising it here without a matching migration would just
+    # trade a clean 413 for an opaque database error. ---
+    max_image_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    max_images_per_product: int = Field(default=8, ge=1, le=100)
+    max_image_pixels: int = Field(default=40_000_000, ge=1)
 
     # --- AI (placeholders only in Phase 2; provider code arrives in Phase 4) ---
     ai_provider: Literal["fake", "gemini"] = "fake"

@@ -60,6 +60,11 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://catalogai:ci-only-not-a-secret@localhost:5432/catalogai
       REDIS_URL: redis://localhost:6379/0
       JWT_SECRET_KEY: ci-only-not-a-secret-and-never-used-in-production
+      S3_ENDPOINT_URL: http://localhost:9000
+      S3_REGION: ap-south-1
+      S3_BUCKET: catalogai-ci
+      S3_ACCESS_KEY_ID: catalogai-ci
+      S3_SECRET_ACCESS_KEY: ci-only-not-a-secret
 
     steps:
       - name: Check out the repository
@@ -75,6 +80,41 @@ jobs:
 
       - name: Install dependencies (locked)
         run: uv sync --frozen
+
+      # Real MinIO, not a mock (docs/03 §19 extends to object storage too). It's not a
+      # GitHub Actions "service" because that block can't run MinIO's required `server /data`
+      # command — a plain container, started and health-checked the same way the dev compose
+      # stack's minio-init does it, but using boto3 (already in the locked environment) instead
+      # of pulling the separate `mc` image.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=${{ env.S3_ACCESS_KEY_ID }} \
+            -e MINIO_ROOT_PASSWORD=${{ env.S3_SECRET_ACCESS_KEY }} \
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live > /dev/null && exit 0
+            sleep 1
+          done
+          echo "MinIO did not become healthy in time" >&2
+          exit 1
+
+      - name: Create the test bucket
+        # A bucket MinIO creates from scratch is private by default (verified empirically: an
+        # anonymous GET on a freshly uploaded object 403s with no extra policy call needed).
+        run: |
+          uv run python -c "
+          import boto3
+          from botocore.config import Config
+          client = boto3.client(
+              's3', endpoint_url='${{ env.S3_ENDPOINT_URL }}',
+              aws_access_key_id='${{ env.S3_ACCESS_KEY_ID }}',
+              aws_secret_access_key='${{ env.S3_SECRET_ACCESS_KEY }}',
+              region_name='${{ env.S3_REGION }}',
+              config=Config(signature_version='s3v4', s3={'addressing_style': 'path'}),
+          )
+          client.create_bucket(Bucket='${{ env.S3_BUCKET }}')
+          "
 
       # 1. Lint
       - name: ruff check

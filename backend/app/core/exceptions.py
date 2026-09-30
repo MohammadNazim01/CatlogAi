@@ -60,6 +60,14 @@ class UnprocessableError(AppError):
     status_code = 422
 
 
+class PayloadTooLargeError(AppError):
+    status_code = 413
+
+
+class UnsupportedMediaTypeError(AppError):
+    status_code = 415
+
+
 class RateLimitedError(AppError):
     status_code = 429
 

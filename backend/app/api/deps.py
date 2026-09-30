@@ -15,11 +15,14 @@ from app.db.enums import Role
 from app.db.models import User
 from app.db.session import get_db
 from app.repositories.user_repo import UserRepository
+from app.storage.base import Storage
+from app.storage.s3 import get_storage
 
 logger = logging.getLogger(__name__)
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+StorageDep = Annotated[Storage, Depends(get_storage)]
 
 _bearer = HTTPBearer(auto_error=False)  # we raise our own uniform error instead
 

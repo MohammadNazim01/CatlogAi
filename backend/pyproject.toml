@@ -15,6 +15,9 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyjwt>=2.9",
     "redis>=5.2",
+    "pillow>=11.0",
+    "boto3>=1.35",
+    "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]
@@ -25,6 +28,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "pip-audit>=2.7",
+    "boto3-stubs[s3]>=1.35",
 ]
 
 [tool.uv]
