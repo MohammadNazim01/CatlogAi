@@ -55,9 +55,15 @@ class Settings(BaseSettings):
     max_images_per_product: int = Field(default=8, ge=1, le=100)
     max_image_pixels: int = Field(default=40_000_000, ge=1)
 
-    # --- AI (placeholders only in Phase 2; provider code arrives in Phase 4) ---
+    # --- AI (docs/03 §11, §21). The pipeline that uses these arrives in a later milestone;
+    # this is the provider foundation: which adapter, which models, and its hard limits. ---
     ai_provider: Literal["fake", "gemini"] = "fake"
     gemini_api_key: SecretStr | None = None
+    ai_vision_model: str = "gemini-flash-latest"
+    ai_text_model: str = "gemini-flash-latest"
+    ai_request_timeout_sec: float = Field(default=60.0, gt=0)
+    ai_max_attempts: int = Field(default=3, ge=1, le=10)
+    ai_max_images_sent: int = Field(default=5, ge=1, le=8)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
