@@ -6,10 +6,12 @@ os.environ.setdefault("APP_ENV", "test")
 from collections.abc import AsyncIterator  # noqa: E402
 
 import pytest  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine  # noqa: E402
 from sqlalchemy.pool import NullPool  # noqa: E402
 
+from app.db.session import get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
 from tests.dbutils import alembic_config, run_alembic, temporary_database  # noqa: E402
 
@@ -46,3 +48,29 @@ async def session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
         finally:
             await s.close()
             await outer.rollback()
+
+
+@pytest.fixture
+def app() -> FastAPI:
+    return create_app()
+
+
+@pytest.fixture
+async def api(app: FastAPI, session: AsyncSession) -> AsyncIterator[AsyncClient]:
+    """HTTP client for the full app, wired to the per-test database session (rolled back after
+    each test). Behaves like a real server: unhandled exceptions become 500 responses."""
+
+    async def use_test_session() -> AsyncIterator[AsyncSession]:
+        try:
+            yield session
+        except Exception:
+            # A real request gets a fresh session; here the session is shared across requests,
+            # so undo the failed unit of work (the SAVEPOINT) like closing a session would.
+            await session.rollback()
+            raise
+
+    app.dependency_overrides[get_db] = use_test_session
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+    app.dependency_overrides.clear()
