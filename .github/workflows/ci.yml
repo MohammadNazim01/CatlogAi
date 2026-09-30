@@ -1,0 +1,112 @@
+name: CI
+
+# Runs on every push and every pull request, exactly as Phase 2 specifies (docs/03 §19).
+"on":
+  push:
+  pull_request:
+
+# The workflow only ever reads the repo and calls a local Docker daemon; it never needs write
+# access to anything on GitHub.
+permissions:
+  contents: read
+
+env:
+  # Pinned so a lockfile-satisfying resolve here is identical to the one in backend/Dockerfile.
+  UV_VERSION: "0.12.17"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  ci:
+    name: ruff, mypy, tests, migrations, docker build, pip-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+
+    # Real Postgres and Redis, not mocks — the test suite talks to them directly (docs/03 §19:
+    # "test against real Postgres and Redis, not SQLite/mocks"). Each run gets a brand-new
+    # container with an empty data directory, so every CI run starts from a clean database.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          # CI-only, throwaway credentials — not a real secret, never used outside this job,
+          # and the container is destroyed at the end of the run.
+          POSTGRES_USER: catalogai
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_DB: catalogai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U catalogai -d catalogai"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    # Matches Settings' fields (app/core/config.py); APP_ENV=test skips the production-only
+    # checks, so none of these need to be real secrets.
+    env:
+      APP_ENV: test
+      DATABASE_URL: postgresql+asyncpg://catalogai:ci-only-not-a-secret@localhost:5432/catalogai
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET_KEY: ci-only-not-a-secret-and-never-used-in-production
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install dependencies (locked)
+        run: uv sync --frozen
+
+      # 1. Lint
+      - name: ruff check
+        run: uv run ruff check .
+
+      # 2. Format
+      - name: ruff format --check
+        run: uv run ruff format --check .
+
+      # 3. Types
+      - name: mypy --strict
+        run: uv run mypy app --strict
+
+      # 4. Full test suite against the real service containers above. Each test file that
+      # touches the database creates and drops its own throwaway database (tests/dbutils.py),
+      # migrated from scratch with Alembic before use — never the shared `catalogai` database.
+      - name: pytest (real Postgres + Redis)
+        run: uv run pytest -q
+
+      # 5 & 6. A second, independent migration check: apply the actual migration chain with the
+      # real `alembic` CLI (not the test harness) to the still-untouched `catalogai` database,
+      # then verify the models and the migrations agree. This is what a real deploy runs.
+      - name: alembic upgrade head
+        run: uv run alembic upgrade head
+
+      - name: alembic check
+        run: uv run alembic check
+
+      # 7. The image actually used to deploy has to build cleanly on every change.
+      - name: Build the backend Docker image
+        run: docker build -t catalogai-backend:ci .
+
+      # 8. Dependency vulnerability scan, against the exact locked environment above.
+      - name: pip-audit
+        run: uv run pip-audit
